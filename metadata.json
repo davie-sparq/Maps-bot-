@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Kenya Business Finder",
+  "description": "An application to find companies in Kenya by category within a specified radius using Google Maps data for up-to-date and accurate information.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

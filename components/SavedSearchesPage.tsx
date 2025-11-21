@@ -5,6 +5,9 @@ import { getSavedSearches, deleteSearch, updateSearch, saveSearch } from '../ser
 import CompanyTable from './CompanyCard';
 import ConfirmDialog from './ConfirmDialog';
 import AlertDialog from './AlertDialog';
+import EnrichmentProgressModal from './EnrichmentProgressModal';
+import { enrichCompaniesWithWebsites } from '../services/websiteEnrichmentService';
+import type { EnrichmentProgress } from '../types';
 
 const SavedSearchesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -32,6 +35,17 @@ const SavedSearchesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         message: string;
         type?: 'success' | 'error' | 'info';
     }>({ isOpen: false, title: '', message: '', type: 'info' });
+
+    // Enrichment state
+    const [showEnrichmentModal, setShowEnrichmentModal] = useState(false);
+    const [enrichmentProgress, setEnrichmentProgress] = useState<EnrichmentProgress>({
+        total: 0,
+        completed: 0,
+        found: 0,
+        notFound: 0,
+        errors: 0,
+    });
+    const [isEnriching, setIsEnriching] = useState(false);
 
     useEffect(() => {
         loadSavedSearches();
@@ -237,6 +251,69 @@ const SavedSearchesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         }
     };
 
+    const handleEnrichWithWebsites = async (search: SavedSearch) => {
+        if (search.companies.length === 0) {
+            setAlertDialog({
+                isOpen: true,
+                title: 'Info',
+                message: 'No companies to enrich.',
+                type: 'info'
+            });
+            return;
+        }
+
+        setIsEnriching(true);
+        setShowEnrichmentModal(true);
+        setEnrichmentProgress({
+            total: search.companies.length,
+            completed: 0,
+            found: 0,
+            notFound: 0,
+            errors: 0,
+        });
+
+        try {
+            const enrichedCompanies = await enrichCompaniesWithWebsites(
+                search.companies,
+                (progress) => {
+                    setEnrichmentProgress(progress);
+                },
+                2000 // 2 second delay
+            );
+
+            // Update the search with enriched companies
+            const updatedSearch = { ...search, companies: enrichedCompanies };
+            await updateSearch(search.id, updatedSearch);
+
+            // Update local state
+            setSavedSearches(prev => prev.map(s => s.id === search.id ? updatedSearch : s));
+            if (selectedSearch?.id === search.id) {
+                setSelectedSearch(updatedSearch);
+            }
+            if (editedSearch?.id === search.id) {
+                setEditedSearch(updatedSearch);
+            }
+
+            setAlertDialog({
+                isOpen: true,
+                title: 'Success',
+                message: 'Enrichment complete! Companies updated with website information.',
+                type: 'success'
+            });
+
+        } catch (error) {
+            console.error('Error enriching companies:', error);
+            setAlertDialog({
+                isOpen: true,
+                title: 'Error',
+                message: 'Failed to enrich companies. Please try again.',
+                type: 'error'
+            });
+        } finally {
+            setIsEnriching(false);
+        }
+    };
+
     const formatDate = (timestamp: number) => {
         return new Date(timestamp).toLocaleDateString('en-US', {
             year: 'numeric',
@@ -301,6 +378,16 @@ const SavedSearchesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                     <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
                                 </svg>
                                 Export
+                            </button>
+                            <button
+                                onClick={() => handleEnrichWithWebsites(displaySearch)}
+                                disabled={isEnriching}
+                                className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                                </svg>
+                                {isEnriching ? 'Enriching...' : 'Enrich'}
                             </button>
                             <button
                                 onClick={() => handleDelete(displaySearch.id, displaySearch.name)}
@@ -605,6 +692,17 @@ const SavedSearchesPage: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 message={alertDialog.message}
                 type={alertDialog.type}
                 onClose={() => setAlertDialog({ ...alertDialog, isOpen: false })}
+            />
+
+            {/* Enrichment Progress Modal */}
+            <EnrichmentProgressModal
+                isOpen={showEnrichmentModal}
+                progress={enrichmentProgress}
+                onCancel={() => {
+                    if (!isEnriching) {
+                        setShowEnrichmentModal(false);
+                    }
+                }}
             />
         </div>
     );

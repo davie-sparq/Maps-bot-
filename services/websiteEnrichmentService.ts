@@ -11,37 +11,75 @@ export const enrichCompaniesWithWebsites = async (
     let notFound = 0;
     let errors = 0;
 
-    const enrichedCompanies: EnrichedCompany[] = [];
+    const enrichedCompanies: EnrichedCompany[] = [...companies] as EnrichedCompany[];
+    const BATCH_SIZE = 3;
 
-    for (const company of companies) {
-        // Simulate processing delay
-        await new Promise(resolve => setTimeout(resolve, delay));
+    for (let i = 0; i < companies.length; i += BATCH_SIZE) {
+        const batch = companies.slice(i, i + BATCH_SIZE);
 
-        // For now, we just pass through the company data
-        // In a real implementation, this would call an API to find the website
-        const enrichedCompany: EnrichedCompany = {
-            ...company,
-            websiteStatus: company.website && company.website !== 'N/A' ? 'found' : 'not_found',
-            websiteUrl: company.website && company.website !== 'N/A' ? company.website : undefined
-        };
+        await Promise.all(batch.map(async (company, index) => {
+            const companyIndex = i + index;
 
-        enrichedCompanies.push(enrichedCompany);
+            // Skip if already has website
+            if (company.website && company.website !== 'N/A') {
+                enrichedCompanies[companyIndex] = {
+                    ...company,
+                    websiteStatus: 'found',
+                    websiteUrl: company.website
+                };
+                found++;
+            } else {
+                try {
+                    // Call our local proxy server with company name and location
+                    const response = await fetch('http://localhost:3001/api/enrich', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            company_name: company.name,
+                            location: company.locality || company.county || 'Kenya'
+                        })
+                    });
 
-        completed++;
-        if (enrichedCompany.websiteStatus === 'found') {
-            found++;
-        } else {
-            notFound++;
-        }
+                    const data = await response.json();
 
-        onProgress({
-            total,
-            completed,
-            found,
-            notFound,
-            errors,
-            currentBusiness: company.name
-        });
+                    if (data.websiteUrl) {
+                        enrichedCompanies[companyIndex] = {
+                            ...company,
+                            websiteStatus: 'found',
+                            websiteUrl: data.websiteUrl,
+                            website: data.websiteUrl // Update original field too
+                        };
+                        found++;
+                    } else {
+                        enrichedCompanies[companyIndex] = {
+                            ...company,
+                            websiteStatus: 'not_found'
+                        };
+                        notFound++;
+                    }
+                } catch (error) {
+                    console.error(`Error enriching ${company.name}:`, error);
+                    enrichedCompanies[companyIndex] = {
+                        ...company,
+                        websiteStatus: 'error'
+                    };
+                    errors++;
+                }
+            }
+
+            completed++;
+            onProgress({
+                total,
+                completed,
+                found,
+                notFound,
+                errors,
+                currentBusiness: company.name
+            });
+        }));
+
+        // Small delay between batches to be nice
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     return enrichedCompanies;

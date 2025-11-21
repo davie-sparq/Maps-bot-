@@ -416,8 +416,18 @@ const App: React.FC = () => {
     return <Hero />;
   };
 
+  const handleHome = () => {
+    setHasSearched(false);
+    setCompanies([]);
+    setGroundingChunks([]);
+    setExcludedCompanies([]);
+    setShowSavedPage(false);
+    setError(null);
+    // Reset search bar if needed, or keep location
+  };
+
   return (
-    <Layout onViewSaved={() => setShowSavedPage(true)}>
+    <Layout onViewSaved={() => setShowSavedPage(true)} onHome={handleHome}>
       {showSavedPage ? (
         <SavedSearchesPage onBack={() => setShowSavedPage(false)} />
       ) : (

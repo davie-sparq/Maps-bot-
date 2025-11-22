@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import * as XLSX from 'xlsx';
 import type { Company, GeolocationState, GroundingChunk } from './types';
 import { findCompanies, geocodeLocation } from './services/geminiService';
+import { calculateDistance, isWithinRadius } from './utils/geoUtils';
 import SearchBar from './components/SearchBar';
 import CompanyTable from './components/CompanyCard';
 import BusinessCard from './components/BusinessCard';
@@ -51,6 +52,7 @@ const App: React.FC = () => {
     categories: string[];
     radius: number;
     limit: number;
+    customQuery?: string;
   } | null>(null);
 
   // Enrichment state
@@ -161,7 +163,7 @@ const App: React.FC = () => {
     updateLocation(lat, lng);
   };
 
-  const handleSearch = useCallback(async (categories: string[], radius: number, limit: number) => {
+  const handleSearch = useCallback(async (categories: string[], radius: number, limit: number, customQuery?: string) => {
     if (!location.latitude || !location.longitude) {
       setError("Your location is not set. Please use GPS, search, or select a location on the map.");
       return;
@@ -176,11 +178,42 @@ const App: React.FC = () => {
     setCurrentPage(1);
 
     // Store search params for saving later
-    setLastSearchParams({ categories, radius, limit });
+    setLastSearchParams({ categories, radius, limit, customQuery });
 
     try {
-      const result = await findCompanies(categories, radius, location.latitude, location.longitude, limit);
+      const result = await findCompanies(categories, radius, location.latitude, location.longitude, limit, customQuery);
       let companies = result.companies;
+
+      // CLIENT-SIDE RADIUS VALIDATION
+      const centerLat = location.latitude;
+      const centerLon = location.longitude;
+      const filteredByRadius: Company[] = [];
+      const outOfRadius: Company[] = [];
+
+      companies.forEach(company => {
+        if (company.latitude !== null && company.longitude !== null) {
+          const distance = calculateDistance(centerLat, centerLon, company.latitude, company.longitude);
+
+          if (distance <= radius) {
+            filteredByRadius.push({
+              ...company,
+              distanceFromCenter: Math.round(distance * 10) / 10 // Round to 1 decimal
+            });
+          } else {
+            outOfRadius.push(company);
+          }
+        } else {
+          // Include companies without coordinates (shouldn't happen, but be safe)
+          filteredByRadius.push(company);
+        }
+      });
+
+      if (outOfRadius.length > 0) {
+        console.log(`[Radius Filter] Removed ${outOfRadius.length} businesses outside ${radius}km radius:`,
+          outOfRadius.map(c => `${c.name} (${c.locality})`));
+      }
+
+      companies = filteredByRadius;
 
       // Apply exclusion filter if enabled
       if (excludeSaved) {
@@ -241,6 +274,7 @@ const App: React.FC = () => {
             longitude: location.longitude!,
           },
           limit: lastSearchParams.limit,
+          customQuery: lastSearchParams.customQuery,
         },
         companies: filteredCompanies,
         filters,
@@ -292,6 +326,69 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRetryEnrichment = async () => {
+    // Find companies that need retry: errors, not_found, or low confidence (<30)
+    const companiesToRetry = filteredCompanies.filter(company => {
+      const enriched = company as any;
+      return (
+        enriched.websiteStatus === 'error' ||
+        enriched.websiteStatus === 'not_found' ||
+        (enriched.websiteStatus === 'found' && (enriched.websiteConfidence || 0) < 30)
+      );
+    });
+
+    if (companiesToRetry.length === 0) {
+      alert('No companies need retry. All enrichments were successful!');
+      return;
+    }
+
+    const confirmRetry = window.confirm(
+      `Retry enrichment for ${companiesToRetry.length} businesses?\n\n` +
+      `This includes:\n` +
+      `- Errors: ${companiesToRetry.filter(c => (c as any).websiteStatus === 'error').length}\n` +
+      `- Not Found: ${companiesToRetry.filter(c => (c as any).websiteStatus === 'not_found').length}\n` +
+      `- Low Confidence: ${companiesToRetry.filter(c => (c as any).websiteStatus === 'found' && ((c as any).websiteConfidence || 0) < 30).length}`
+    );
+
+    if (!confirmRetry) return;
+
+    setIsEnriching(true);
+    setShowEnrichmentModal(true);
+    setEnrichmentProgress({
+      total: companiesToRetry.length,
+      completed: 0,
+      found: 0,
+      notFound: 0,
+      errors: 0,
+    });
+
+    try {
+      const enrichedResults = await enrichCompaniesWithWebsites(
+        companiesToRetry,
+        (progress) => {
+          setEnrichmentProgress(progress);
+        },
+        2000
+      );
+
+      // Merge retry results back into main companies array
+      const updatedCompanies = companies.map(company => {
+        const retryResult = enrichedResults.find(r => r.name === company.name);
+        return retryResult || company;
+      });
+
+      setCompanies(updatedCompanies);
+
+      const successCount = enrichedResults.filter(c => (c as any).websiteStatus === 'found').length;
+      alert(`Retry complete! Found ${successCount} additional websites.`);
+    } catch (error) {
+      console.error('Error retrying enrichment:', error);
+      alert('Failed to retry enrichment. Please try again.');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   const renderContent = () => {
     if (loading && companies.length === 0) return <Loader />;
     if (error && companies.length === 0 && hasSearched) return <ErrorMessage message={error} />;
@@ -329,6 +426,18 @@ const App: React.FC = () => {
               <button onClick={handleEnrichWithWebsites} disabled={filteredCompanies.length === 0 || isEnriching} className="bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" /></svg>
                 {isEnriching ? 'Enriching...' : 'Enrich with Websites'}
+              </button>
+              <button
+                onClick={handleRetryEnrichment}
+                disabled={filteredCompanies.length === 0 || isEnriching || !filteredCompanies.some(c => {
+                  const enriched = c as any;
+                  return enriched.websiteStatus === 'error' || enriched.websiteStatus === 'not_found' || (enriched.websiteStatus === 'found' && (enriched.websiteConfidence || 0) < 30);
+                })}
+                className="bg-amber-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-amber-700 focus:ring-2 focus:ring-amber-500 flex items-center disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-sm"
+                title="Retry enrichment for failed or low-confidence results"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
+                Retry Failed
               </button>
             </div>
           </div>

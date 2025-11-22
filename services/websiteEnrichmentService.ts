@@ -36,7 +36,8 @@ export const enrichCompaniesWithWebsites = async (
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             company_name: company.name,
-                            location: company.locality || company.county || 'Kenya'
+                            location: company.locality || company.county || 'Kenya',
+                            company_type: company.type
                         })
                     });
 
@@ -47,13 +48,15 @@ export const enrichCompaniesWithWebsites = async (
                             ...company,
                             websiteStatus: 'found',
                             websiteUrl: data.websiteUrl,
-                            website: data.websiteUrl // Update original field too
+                            website: data.websiteUrl, // Update original field too
+                            websiteConfidence: data.confidence || 0
                         };
                         found++;
                     } else {
                         enrichedCompanies[companyIndex] = {
                             ...company,
-                            websiteStatus: 'not_found'
+                            websiteStatus: 'not_found',
+                            websiteConfidence: data.confidence || 0
                         };
                         notFound++;
                     }

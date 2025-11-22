@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import L from 'leaflet';
 
 interface SearchBarProps {
-  onSearch: (categories: string[], radius: number, limit: number) => void;
+  onSearch: (categories: string[], radius: number, limit: number, customQuery?: string) => void;
   hasSearched: boolean;
   loading: boolean;
   isLocationSet: boolean;
@@ -42,6 +42,7 @@ const getZoomLevelForRadius = (radiusKm: number): number => {
 
 const SearchBar: React.FC<SearchBarProps> = ({ onSearch, hasSearched, loading, isLocationSet, onLocationGeocode, onUseCurrentLocation, onMapLocationSelect, currentLocation, resultsCount, filters, onFilterChange, excludeSaved, onExcludeSavedChange }) => {
   const [categories, setCategories] = useState<string[]>(['Restaurants']);
+  const [customQuery, setCustomQuery] = useState<string>('');
   const [radius, setRadius] = useState<number>(5);
   const [limit, setLimit] = useState<number>(10);
   const [isLimitless, setIsLimitless] = useState<boolean>(false);
@@ -133,8 +134,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, hasSearched, loading, i
   const handleMainSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const searchLimit = isLimitless ? 500 : limit;
-    if (categories.length > 0 && radius > 0 && searchLimit > 0 && isLocationSet) {
-      onSearch(categories, radius, searchLimit);
+    if ((categories.length > 0 || customQuery.trim() !== '') && radius > 0 && searchLimit > 0 && isLocationSet) {
+      onSearch(categories, radius, searchLimit, customQuery);
       setIsDropdownOpen(false);
     }
   };
@@ -239,6 +240,21 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, hasSearched, loading, i
       {/* Search Criteria Section */}
       <form onSubmit={handleMainSearchSubmit} className="space-y-6">
         <div className="flex flex-col gap-4">
+          {/* Custom Search Input */}
+          <div>
+            <label htmlFor="custom-search" className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-1">Custom Search (Optional)</label>
+            <div className="relative">
+              <input
+                type="text"
+                id="custom-search"
+                value={customQuery}
+                onChange={(e) => setCustomQuery(e.target.value)}
+                placeholder="e.g. Public Primary Schools, Italian Restaurants"
+                className="w-full pl-4 pr-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all shadow-sm text-sm"
+              />
+            </div>
+          </div>
+
           {/* Category Dropdown */}
           <div className="relative" ref={dropdownRef}>
             <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-1">Category</label>
@@ -306,7 +322,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, hasSearched, loading, i
           </label>
 
           {/* Main Search Button */}
-          <button type="submit" disabled={loading || !isLocationSet || categories.length === 0} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-indigo-500/30 transform hover:-translate-y-0.5 transition-all duration-200">
+          <button type="submit" disabled={loading || !isLocationSet || (categories.length === 0 && customQuery.trim() === '')} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-3 px-6 rounded-xl hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-indigo-500/30 transform hover:-translate-y-0.5 transition-all duration-200">
             {loading ? (
               <>
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>

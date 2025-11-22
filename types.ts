@@ -9,6 +9,7 @@ export interface Company {
   latitude: number | null;
   longitude: number | null;
   rating?: number | null;
+  distanceFromCenter?: number; // Distance in km from search center
 }
 
 export interface GeolocationState {
@@ -38,6 +39,7 @@ export interface SearchParams {
   radius: number;
   location: LocationData;
   limit: number;
+  customQuery?: string;
 }
 
 export interface LocationData {
@@ -56,6 +58,7 @@ export interface Filters {
 export interface EnrichedCompany extends Company {
   websiteUrl?: string;
   websiteStatus: 'found' | 'not_found' | 'pending' | 'error';
+  websiteConfidence?: number; // 0-100 confidence score
   googleBusinessUrl?: string;
   googleBusinessData?: GoogleBusinessData;
   enrichedAt?: number;

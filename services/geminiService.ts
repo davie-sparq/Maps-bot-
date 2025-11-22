@@ -42,18 +42,27 @@ export const findCompanies = async (
   radius: number,
   latitude: number,
   longitude: number,
-  limit: number
+  limit: number,
+  customQuery?: string
 ): Promise<FindCompaniesResult> => {
   const model = "gemini-2.5-flash";
 
-  const categoryText = categories.length === 1
-    ? `The category of companies to search for is "${categories[0]}".`
-    : `The categories of companies to search for are ${categories.map(c => `"${c}"`).join(', ')}.`;
+  let searchInstruction = "";
+  if (customQuery && customQuery.trim() !== "") {
+    searchInstruction = `The user is searching for: "${customQuery}".`;
+    if (categories.length > 0) {
+      searchInstruction += ` Consider the following categories as context or additional filters: ${categories.map(c => `"${c}"`).join(', ')}.`;
+    }
+  } else {
+    searchInstruction = categories.length === 1
+      ? `The category of companies to search for is "${categories[0]}".`
+      : `The categories of companies to search for are ${categories.map(c => `"${c}"`).join(', ')}.`;
+  }
 
-  const prompt = `Find at least ${limit} companies in Kenya STRICTLY within a ${radius} km radius of latitude ${latitude} and longitude ${longitude}. ${categoryText}
+  const prompt = `Find at least ${limit} companies in Kenya STRICTLY within a ${radius} km radius of latitude ${latitude} and longitude ${longitude}. ${searchInstruction}
   STRICT INSTRUCTION: You MUST return a list of MULTIPLE companies. Do not stop at one result. I need a comprehensive and EXHAUSTIVE list of at least ${limit} businesses if they exist.
-  Do NOT include businesses outside the ${radius} km radius. Be very precise with the location filtering.
-  Provide a list of these companies. For each company, include its name (maximum 40 characters), its specific type of business (e.g., 'Italian Restaurant', 'Hardware Shop'), locality, county, website (if available), contact information, a link to their Google Business Profile (if available), its precise latitude and longitude, and its user rating (a number from 1 to 5, if available).
+  Restrict the desire to include businesses outside the ${radius} km radius. Be very precise with the location filtering.
+  Provide a list of these companies. For each company, include its name (maximum 40 characters), its specific type of business (e.g., 'Restaurant', 'Hardware Shop'), locality, county, website (if available), contact information, a link to their Google Business Profile (if available), its precise latitude and longitude, and its user rating (a number from 1 to 5, if available).
   Return the result ONLY as a valid JSON array of objects. Each object should have the following keys: "name", "type", "locality", "county", "website", "contact", "google_maps_url", "latitude", "longitude", and "rating".
   If a piece of information is not available, use "N/A" for string fields and null for numeric fields like latitude, longitude, and rating. Do not include any introductory text or markdown formatting.`;
 
